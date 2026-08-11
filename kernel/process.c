@@ -159,9 +159,12 @@ void process_exit(uint32_t pid)
             processes[i].state = PROC_STATE_DEAD;
             kprintf("[SCHEDULER] Process PID %d Exited. Memory FREED.\n", pid);
             
-            /* Eğer çalışan süreç intihar ettiyse, zamanlayıcıyı beklemeden döngüye gir (interrupt gelene kadar) */
+            /* Süreç kendini sonlandırdıysa scheduler'ın onu devre dışı
+               bırakmasını bekle. Buraya syscall içinden (IF kapalı)
+               gelinebildiği için önce kesmeleri açmak şart — aksi halde
+               timer hiç gelmez ve `hlt` sonsuza kadar asılı kalır. */
             if (current_process_index == i) {
-                while(1) __asm__ volatile("hlt");
+                while (1) __asm__ volatile("sti; hlt");
             }
             break;
         }

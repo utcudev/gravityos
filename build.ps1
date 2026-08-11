@@ -92,8 +92,10 @@ $c_files = @(
     "kernel/heap.c",
     "kernel/process.c",
     "kernel/syscall.c",
+    "kernel/usermode.c",
     "kernel/elf_loader.c",
     "kernel/vfs.c",
+    "cpu/gdt.c",
     "cpu/idt.c",
     "cpu/isr.c",
     "drivers/serial.c",
@@ -113,10 +115,20 @@ $c_files = @(
 
 $obj_files = @()
 
-# ISR assembly
-& nasm -f elf64 cpu/isr_stub.asm -o "$buildDir\isr_stub.o"
-if ($LASTEXITCODE -ne 0) { Fail "nasm cpu/isr_stub.asm derlenemedi." }
-$obj_files += "$buildDir\isr_stub.o"
+$asm_files = @(
+    "cpu/isr_stub.asm",
+    "cpu/syscall_entry.asm",
+    "cpu/usermode_prog.asm"
+)
+
+foreach ($file in $asm_files) {
+    if (!(Test-Path $file)) { Fail "Kaynak dosya bulunamadı: $file" }
+    $obj = Join-Path $buildDir ([System.IO.Path]::GetFileNameWithoutExtension($file) + ".o")
+    Write-Host "      AS $file" -ForegroundColor DarkGray
+    & nasm -f elf64 $file -o $obj
+    if ($LASTEXITCODE -ne 0) { Fail "nasm $file derlenemedi." }
+    $obj_files += $obj
+}
 
 # SSE/MMX kapalı olmalı: kernel FPU/SSE durumunu kurmuyor, derleyici bu
 # komutları üretirse CPU boot sırasında exception atar.

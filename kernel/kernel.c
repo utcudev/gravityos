@@ -16,10 +16,12 @@
 #include "../drivers/pci.h"
 #include "../gui/window.h"
 #include "../cpu/idt.h"
+#include "../cpu/gdt.h"
 #include "pmm.h"
 #include "vmm.h"
 #include "heap.h"
 #include "process.h"
+#include "syscall.h"
 #include "limine.h"
 #include "../shell/shell.h"
 
@@ -83,6 +85,9 @@ void kmain(void)
 {
     serial_init();
 
+    /* Kendi GDT + TSS'imizi kur: Limine'inkinde user segmenti ve TSS yok */
+    gdt_init();
+
     if (LIMINE_BASE_REVISION_SUPPORTED == false) {
         kpanic("Limine base revision not supported!");
     }
@@ -124,7 +129,8 @@ void kmain(void)
 
     /* Kesmeleri kur (Page Fault gibi exception'ları baştan yakalayabilelim) */
     isr_init();
-    process_init(); /* Scheduler'ı hazırla — timer IRQ'su buna bağlı */
+    process_init();  /* Scheduler'ı hazırla — timer IRQ'su buna bağlı */
+    syscall_init();  /* syscall/sysret MSR'larını kur (ring 3 için) */
 
     /* VESA Framebuffer ve masaüstü */
     fb_init(&limine_boot_info);

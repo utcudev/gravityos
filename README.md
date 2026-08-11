@@ -82,6 +82,8 @@ gravityos/
 | `help` | Komut listesi |
 | `clear` | Ekranı temizle |
 | `echo <msg>` | Mesaj yazdır |
+| `fetch` | Logolu sistem özeti (fastfetch tarzı) |
+| `usermode` | Ring 3'te test programı çalıştır |
 | `mem` | Fiziksel bellek kullanımı |
 | `uptime` | Sistem çalışma süresi |
 | `gravity` | GravityOS bilgisi |
@@ -106,18 +108,23 @@ gravityos/
 - [x] Preemptive scheduler — masaüstü saati ayrı süreçte dönüyor
 - [x] Masaüstü + pencere + görev çubuğu
 - [x] gsh kabuğu pencere içinde, klavyeden komut alıyor
+- [x] Kendi GDT + TSS — user segmentleri ve ring 0 stack'i (`cpu/gdt.c`)
+- [x] Ring 3 (user mode) — `usermode` komutu test programını kullanıcı
+      modunda çalıştırıyor, kernel'e yalnızca `syscall` ile ulaşabiliyor
+- [x] `syscall`/`sysret` girişi — `write` ve `exit` çalışıyor
+      (`cpu/syscall_entry.asm`, `kernel/syscall.c`)
 
 Henüz yok:
 
-- [ ] Ring 3 (user mode) ve TSS
-- [ ] `syscall`/`sysret` girişi — `kernel/syscall.c` yazılı ama tetiklenmiyor
 - [ ] Disk sürücüsü (ATA PIO / AHCI) — bu olmadan dosya okunamıyor
 - [ ] FAT32 — `drivers/fat32.c` iskelet, `fat32_init` hiçbir yerden çağrılmıyor
-- [ ] ELF çalıştırma — `kernel/elf_loader.c` segmentleri haritalıyor, ring 3'e geçmiyor
+- [ ] ELF çalıştırma — `kernel/elf_loader.c` segmentleri haritalıyor ama
+      ring 3'e geçmiyor; artık `usermode.c`'deki yolu kullanabilir
+- [ ] Süreç başına ayrı adres alanı (şu an tüm süreçler aynı PML4'ü paylaşıyor)
 - [ ] Pencere yöneticisi: taşıma, odak, çoklu pencere, fare tıklaması
 
-Sıradaki adım: TSS + ring 3 geçişi, ardından `syscall` girişi, sonra ATA PIO + FAT32.
-Disk okuma çalışmadan ELF yükleyicinin gidecek yeri yok.
+Sıradaki adım: ATA PIO sürücüsü + FAT32 okuma. Disk okunabilir olunca ELF
+yükleyici gerçek bir programı diskten alıp ring 3'te çalıştırabilir.
 
 ### Bilinen sınırlar
 

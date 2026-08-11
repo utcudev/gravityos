@@ -12,6 +12,7 @@
 #include "../drivers/keyboard.h"
 #include "../kernel/pmm.h"
 #include "../kernel/process.h"
+#include "../kernel/usermode.h"
 #include "../drivers/fb.h"
 #include "../drivers/timer.h"
 #include "../cpu/ports.h"
@@ -32,6 +33,7 @@ static void cmd_help(void)
     kprintf("  clear      - Clear the screen\n");
     kprintf("  echo <msg> - Print a message\n");
     kprintf("  fetch      - System summary with logo\n");
+    kprintf("  usermode   - Run a test program in ring 3\n");
     kprintf("  mem        - Show physical memory usage\n");
     kprintf("  uptime     - Show system uptime\n");
     kprintf("  gravity    - Show GravityOS info\n");
@@ -73,6 +75,21 @@ static void cmd_uptime(void)
 
     kprintf("Uptime: %lu hours, %lu minutes, %lu seconds\n",
             hours, minutes % 60, seconds % 60);
+}
+
+static void cmd_usermode(void)
+{
+    kprintf("Starting ring 3 test program...\n");
+
+    uint32_t pid = process_create(usermode_run_test);
+    if (pid == 0) {
+        kprintf("gsh: could not create user mode process\n");
+        return;
+    }
+
+    /* Program ayrı bir süreç olarak çalışıyor; scheduler ona geçtiğinde
+       çıktısı buraya düşecek. Birkaç tick bekleyip prompt'u geri veriyoruz. */
+    sleep_ms(200);
 }
 
 /* CPU marka adını CPUID (0x80000002-0x80000004) ile oku */
@@ -269,6 +286,8 @@ static void process_command(char *cmd_line)
         cmd_clear();
     } else if (strcmp(cmd, "echo") == 0) {
         cmd_echo(args);
+    } else if (strcmp(cmd, "usermode") == 0 || strcmp(cmd, "ring3") == 0) {
+        cmd_usermode();
     } else if (strcmp(cmd, "fetch") == 0 || strcmp(cmd, "neofetch") == 0) {
         cmd_fetch();
     } else if (strcmp(cmd, "mem") == 0) {

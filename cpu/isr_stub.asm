@@ -124,8 +124,8 @@ isr_common_stub:
     ;; C handler'ı çağır — RDI = stack pointer (cpu_state_t*)
     mov rdi, rsp
     
-    ;; GDT'de 64-bit Data Segment'ini (Limine = 0x30) yükle
-    mov ax, 0x30
+    ;; GDT'de 64-bit Data Segment'ini (kendi GDT = 0x10) yükle
+    mov ax, 0x10
     mov ds, ax
     mov es, ax
 
@@ -176,8 +176,8 @@ irq_common_stub:
 
     mov rdi, rsp
     
-    ;; GDT'de 64-bit Data Segment'ini (Limine = 0x30) yükle
-    mov ax, 0x30
+    ;; GDT'de 64-bit Data Segment'ini (kendi GDT = 0x10) yükle
+    mov ax, 0x10
     mov ds, ax
     mov es, ax
 
