@@ -107,6 +107,7 @@ $c_files = @(
     "drivers/fbcon.c",
     "drivers/fat32.c",
     "drivers/pci.c",
+    "drivers/ata.c",
     "gui/window.c",
     "lib/string.c",
     "lib/stdio.c",
@@ -208,6 +209,11 @@ if ($Run) {
     if (!(Test-Path $qemu)) { Fail "QEMU bulunamadı. Kurulum: winget install SoftwareFreedomConservancy.QEMU" }
 
     $qargs = @("-cdrom", "$cwd\gravityos.iso", "-m", "512M", "-no-reboot", "-no-shutdown")
+
+    # Sabit disk imajı varsa bağla
+    if (Test-Path "$cwd\disk.img") {
+        $qargs += @("-drive", "file=$cwd\disk.img,format=raw,if=ide,index=0,media=disk")
+    }
     if ($Headless) {
         $qargs += @("-display", "none", "-serial", "stdio")
     } else {

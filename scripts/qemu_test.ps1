@@ -42,6 +42,12 @@ $qargs = @(
     "-monitor", "tcp:127.0.0.1:$port,server,nowait"
 )
 
+# Sabit disk imajı varsa birincil IDE kanalına bağla
+$diskImg = Join-Path $root "disk.img"
+if (Test-Path $diskImg) {
+    $qargs += @("-drive", "file=$diskImg,format=raw,if=ide,index=0,media=disk")
+}
+
 $proc = Start-Process -FilePath $qemu -ArgumentList $qargs -PassThru -NoNewWindow
 Start-Sleep -Seconds $Seconds
 

@@ -14,6 +14,7 @@
 #include "../drivers/keyboard.h"
 #include "../drivers/mouse.h"
 #include "../drivers/pci.h"
+#include "../drivers/ata.h"
 #include "../gui/window.h"
 #include "../cpu/idt.h"
 #include "../cpu/gdt.h"
@@ -170,6 +171,7 @@ void kmain(void)
     keyboard_init();
     mouse_init();
     pci_init();
+    ata_init();
 
     /* Saat sürecini başlat: scheduler gerçekten iki süreç arasında geçiş
        yaptığını görev çubuğundaki sayaç ile kanıtlar */

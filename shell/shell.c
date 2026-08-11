@@ -14,6 +14,7 @@
 #include "../kernel/process.h"
 #include "../kernel/usermode.h"
 #include "../drivers/fb.h"
+#include "../drivers/ata.h"
 #include "../drivers/timer.h"
 #include "../cpu/ports.h"
 
@@ -34,6 +35,7 @@ static void cmd_help(void)
     kprintf("  echo <msg> - Print a message\n");
     kprintf("  fetch      - System summary with logo\n");
     kprintf("  usermode   - Run a test program in ring 3\n");
+    kprintf("  disk       - Show ATA disk info and dump sector 0\n");
     kprintf("  mem        - Show physical memory usage\n");
     kprintf("  uptime     - Show system uptime\n");
     kprintf("  gravity    - Show GravityOS info\n");
@@ -75,6 +77,37 @@ static void cmd_uptime(void)
 
     kprintf("Uptime: %lu hours, %lu minutes, %lu seconds\n",
             hours, minutes % 60, seconds % 60);
+}
+
+static void cmd_disk(void)
+{
+    if (!ata_present()) {
+        kprintf("gsh: no ATA disk detected\n");
+        return;
+    }
+
+    kprintf("Model:   %s\n", ata_model());
+    kprintf("Sectors: %u (%u MB)\n", ata_sector_count(), ata_sector_count() / 2048);
+
+    static uint8_t sector[ATA_SECTOR_SIZE];
+    if (ata_read_sectors(0, 1, sector) != 0) {
+        kprintf("gsh: read failed\n");
+        return;
+    }
+
+    kprintf("LBA 0, first 64 bytes:\n");
+    for (int row = 0; row < 4; row++) {
+        kprintf("  %04x  ", row * 16);
+        for (int i = 0; i < 16; i++) {
+            kprintf("%02x ", sector[row * 16 + i]);
+        }
+        kprintf(" |");
+        for (int i = 0; i < 16; i++) {
+            char c = (char)sector[row * 16 + i];
+            kprintf("%c", (c >= 32 && c < 127) ? c : '.');
+        }
+        kprintf("|\n");
+    }
 }
 
 static void cmd_usermode(void)
@@ -286,6 +319,8 @@ static void process_command(char *cmd_line)
         cmd_clear();
     } else if (strcmp(cmd, "echo") == 0) {
         cmd_echo(args);
+    } else if (strcmp(cmd, "disk") == 0) {
+        cmd_disk();
     } else if (strcmp(cmd, "usermode") == 0 || strcmp(cmd, "ring3") == 0) {
         cmd_usermode();
     } else if (strcmp(cmd, "fetch") == 0 || strcmp(cmd, "neofetch") == 0) {
