@@ -44,5 +44,6 @@ void process_schedule(cpu_state_t* current_context);
 void process_exit(uint32_t pid);
 void process_track_allocation(uint32_t pid, void* phys_addr);
 uint32_t process_get_current_pid(void);
+int process_count_alive(void);
 
 #endif /* KERNEL_PROCESS_H */

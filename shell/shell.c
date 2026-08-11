@@ -11,6 +11,8 @@
 #include "../drivers/fbcon.h"
 #include "../drivers/keyboard.h"
 #include "../kernel/pmm.h"
+#include "../kernel/process.h"
+#include "../drivers/fb.h"
 #include "../drivers/timer.h"
 #include "../cpu/ports.h"
 
@@ -29,6 +31,7 @@ static void cmd_help(void)
     kprintf("  help       - Show this help message\n");
     kprintf("  clear      - Clear the screen\n");
     kprintf("  echo <msg> - Print a message\n");
+    kprintf("  fetch      - System summary with logo\n");
     kprintf("  mem        - Show physical memory usage\n");
     kprintf("  uptime     - Show system uptime\n");
     kprintf("  gravity    - Show GravityOS info\n");
@@ -70,6 +73,89 @@ static void cmd_uptime(void)
 
     kprintf("Uptime: %lu hours, %lu minutes, %lu seconds\n",
             hours, minutes % 60, seconds % 60);
+}
+
+/* CPU marka adını CPUID (0x80000002-0x80000004) ile oku */
+static void cpu_brand(char *out, int size)
+{
+    uint32_t regs[4];
+    uint32_t max_ext;
+
+    __asm__ volatile("cpuid" : "=a"(max_ext), "=b"(regs[1]), "=c"(regs[2]), "=d"(regs[3])
+                             : "a"(0x80000000));
+
+    if (max_ext < 0x80000004 || size < 49) {
+        strcpy(out, "Unknown x86_64 CPU");
+        return;
+    }
+
+    int pos = 0;
+    for (uint32_t leaf = 0x80000002; leaf <= 0x80000004; leaf++) {
+        __asm__ volatile("cpuid" : "=a"(regs[0]), "=b"(regs[1]), "=c"(regs[2]), "=d"(regs[3])
+                                 : "a"(leaf));
+        for (int r = 0; r < 4; r++) {
+            for (int b = 0; b < 4; b++) {
+                out[pos++] = (char)((regs[r] >> (b * 8)) & 0xFF);
+            }
+        }
+    }
+    out[pos] = '\0';
+
+    /* Baştaki boşlukları kırp */
+    int start = 0;
+    while (out[start] == ' ') start++;
+    if (start) {
+        int i = 0;
+        while (out[start + i]) { out[i] = out[start + i]; i++; }
+        out[i] = '\0';
+    }
+}
+
+/* fastfetch tarzı sistem özeti */
+static void cmd_fetch(void)
+{
+    static const char *logo[] = {
+        "   ______                 ",
+        "  / ____/_______ __   __  ",
+        " / / __/ ___/ _ \\\\ \\ / /  ",
+        "/ /_/ / /  /  __/ \\ V /   ",
+        "\\____/_/   \\___/  \\_/     ",
+        "                          ",
+        "                          ",
+        "                          ",
+        "                          ",
+        "                          ",
+    };
+
+    char brand[64];
+    cpu_brand(brand, sizeof(brand));
+
+    uint64_t seconds = timer_get_ticks() / 100;
+    uint64_t total   = pmm_get_total_memory() / (1024 * 1024);
+    uint64_t used_kb = (pmm_get_total_memory() - pmm_get_free_memory()) / 1024;
+
+    char info[10][80];
+    snprintf(info[0], sizeof(info[0]), "root@gravityos");
+    snprintf(info[1], sizeof(info[1]), "--------------");
+    snprintf(info[2], sizeof(info[2]), "OS:         GravityOS v0.1.0 x86_64");
+    snprintf(info[3], sizeof(info[3]), "Kernel:     gravity-monolithic (higher-half)");
+    snprintf(info[4], sizeof(info[4]), "Bootloader: Limine");
+    snprintf(info[5], sizeof(info[5]), "Uptime:     %lu min %lu sec", seconds / 60, seconds % 60);
+    snprintf(info[6], sizeof(info[6]), "Shell:      gsh");
+    snprintf(info[7], sizeof(info[7]), "Resolution: %ux%u", fb_get_width(), fb_get_height());
+    snprintf(info[8], sizeof(info[8]), "CPU:        %s", brand);
+    snprintf(info[9], sizeof(info[9]), "Memory:     %lu KB / %lu MB   (%d process)",
+             used_kb, total, process_count_alive());
+
+    kprintf("\n");
+    for (int i = 0; i < 10; i++) {
+        fbcon_set_color(FBC_CYAN);
+        kprintf("%s", logo[i]);
+        fbcon_set_color(i < 2 ? FBC_GREEN : FBC_GREY);
+        kprintf("  %s\n", info[i]);
+    }
+    fbcon_set_color(FBC_GREY);
+    kprintf("\n");
 }
 
 static void cmd_gravity(void)
@@ -183,6 +269,8 @@ static void process_command(char *cmd_line)
         cmd_clear();
     } else if (strcmp(cmd, "echo") == 0) {
         cmd_echo(args);
+    } else if (strcmp(cmd, "fetch") == 0 || strcmp(cmd, "neofetch") == 0) {
+        cmd_fetch();
     } else if (strcmp(cmd, "mem") == 0) {
         cmd_mem();
     } else if (strcmp(cmd, "uptime") == 0) {

@@ -119,6 +119,15 @@ void process_schedule(cpu_state_t* current_context)
     }
 }
 
+int process_count_alive(void)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[i].state != PROC_STATE_DEAD) n++;
+    }
+    return n;
+}
+
 uint32_t process_get_current_pid(void)
 {
     if (current_process_index == -1) return 0;
