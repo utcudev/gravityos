@@ -24,4 +24,7 @@ const char *ata_model(void);
 /* lba'dan başlayarak count sektör oku. Başarıda 0, hatada -1. */
 int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer);
 
+/* lba'dan başlayarak count sektör yaz. Başarıda 0, hatada -1. */
+int ata_write_sectors(uint32_t lba, uint8_t count, const void *buffer);
+
 #endif /* DRIVERS_ATA_H */

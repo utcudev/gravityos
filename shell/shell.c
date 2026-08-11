@@ -42,6 +42,9 @@ static void cmd_help(void)
     kprintf("  usermode   - Run a test program in ring 3\n");
     kprintf("  ls         - List files on disk\n");
     kprintf("  cat <file> - Print a file from disk\n");
+    kprintf("  write <file> <text> - Write text to a file\n");
+    kprintf("  rm <file>  - Delete a file\n");
+    kprintf("  df         - Show free disk space\n");
     kprintf("  run <file> - Load an ELF from disk and run it in ring 3\n");
     kprintf("  disk       - Show ATA disk info and dump sector 0\n");
     kprintf("  net        - Show network configuration\n");
@@ -302,6 +305,73 @@ static void cmd_cat(const char *filename)
     kfree(buf);
 }
 
+static void cmd_write(char *args)
+{
+    if (!args) {
+        kprintf("usage: write <file> <text>\n");
+        return;
+    }
+
+    if (!fat32_mounted()) {
+        kprintf("write: no filesystem mounted\n");
+        return;
+    }
+
+    /* İlk boşluğa kadar dosya adı, kalanı içerik */
+    char *text = strchr(args, ' ');
+    if (!text) {
+        kprintf("usage: write <file> <text>\n");
+        return;
+    }
+    *text = '\0';
+    text++;
+    while (*text == ' ') text++;
+
+    /* Satır sonu ekle ki cat çıktısı düzgün görünsün */
+    static char buffer[512];
+    int len = 0;
+    while (text[len] && len < (int)sizeof(buffer) - 2) {
+        buffer[len] = text[len];
+        len++;
+    }
+    buffer[len++] = '\n';
+
+    int written = fat32_write_file(args, buffer, (uint32_t)len);
+    if (written < 0) {
+        kprintf("write: failed (%d)\n", written);
+        return;
+    }
+
+    kprintf("%s: %d bytes written\n", args, written);
+}
+
+static void cmd_rm(const char *filename)
+{
+    if (!filename) {
+        kprintf("usage: rm <file>\n");
+        return;
+    }
+
+    if (fat32_delete_file(filename) != 0) {
+        kprintf("rm: %s: no such file\n", filename);
+        return;
+    }
+
+    kprintf("%s deleted\n", filename);
+}
+
+static void cmd_df(void)
+{
+    if (!fat32_mounted()) {
+        kprintf("df: no filesystem mounted\n");
+        return;
+    }
+
+    uint64_t free_bytes = fat32_free_space();
+    kprintf("Free space: %lu KB (%lu MB)\n",
+            free_bytes / 1024, free_bytes / (1024 * 1024));
+}
+
 static void cmd_disk(void)
 {
     if (!ata_present()) {
@@ -552,6 +622,12 @@ static void process_command(char *cmd_line)
         cmd_ls();
     } else if (strcmp(cmd, "cat") == 0) {
         cmd_cat(args);
+    } else if (strcmp(cmd, "write") == 0) {
+        cmd_write(args);
+    } else if (strcmp(cmd, "rm") == 0 || strcmp(cmd, "del") == 0) {
+        cmd_rm(args);
+    } else if (strcmp(cmd, "df") == 0) {
+        cmd_df();
     } else if (strcmp(cmd, "disk") == 0) {
         cmd_disk();
     } else if (strcmp(cmd, "usermode") == 0 || strcmp(cmd, "ring3") == 0) {

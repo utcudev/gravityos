@@ -25,8 +25,10 @@
 #define ATA_SR_DRQ  0x08  /* Veri transferi isteniyor */
 #define ATA_SR_ERR  0x01  /* Hata */
 
-#define ATA_CMD_READ_PIO 0x20
-#define ATA_CMD_IDENTIFY 0xEC
+#define ATA_CMD_READ_PIO   0x20
+#define ATA_CMD_WRITE_PIO  0x30
+#define ATA_CMD_FLUSH      0xE7
+#define ATA_CMD_IDENTIFY   0xEC
 
 static int      disk_present = 0;
 static uint32_t disk_sectors = 0;
@@ -123,13 +125,9 @@ int ata_init(void)
     return 1;
 }
 
-int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer)
+/* Ortak komut kurulumu: sürücü seçimi ve LBA28 adresi */
+static int ata_issue(uint32_t lba, uint8_t count, uint8_t command)
 {
-    if (!disk_present) return -1;
-    if (count == 0) return -1;
-
-    uint16_t *out = (uint16_t *)buffer;
-
     if (ata_wait_not_busy() != 0) return -1;
 
     /* LBA28: üst 4 bit sürücü baytının içinde gider */
@@ -139,7 +137,18 @@ int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer)
     outb(ATA_LBA_LOW,  (uint8_t)(lba & 0xFF));
     outb(ATA_LBA_MID,  (uint8_t)((lba >> 8) & 0xFF));
     outb(ATA_LBA_HIGH, (uint8_t)((lba >> 16) & 0xFF));
-    outb(ATA_COMMAND,  ATA_CMD_READ_PIO);
+    outb(ATA_COMMAND,  command);
+    return 0;
+}
+
+int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer)
+{
+    if (!disk_present) return -1;
+    if (count == 0) return -1;
+
+    uint16_t *out = (uint16_t *)buffer;
+
+    if (ata_issue(lba, count, ATA_CMD_READ_PIO) != 0) return -1;
 
     for (uint32_t s = 0; s < count; s++) {
         if (ata_wait_drq() != 0) {
@@ -151,6 +160,37 @@ int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer)
         }
         ata_io_wait();
     }
+
+    return 0;
+}
+
+int ata_write_sectors(uint32_t lba, uint8_t count, const void *buffer)
+{
+    if (!disk_present) return -1;
+    if (count == 0) return -1;
+
+    const uint16_t *in = (const uint16_t *)buffer;
+
+    if (ata_issue(lba, count, ATA_CMD_WRITE_PIO) != 0) return -1;
+
+    for (uint32_t s = 0; s < count; s++) {
+        if (ata_wait_drq() != 0) {
+            kprintf("[ATA] Write error at LBA %u\n", lba + s);
+            return -1;
+        }
+
+        /* Veri kelime kelime yazılır; her outw arasında gecikme gerekmez ama
+           sektör sonunda denetleyicinin durumu güncellemesi beklenir. */
+        for (int i = 0; i < ATA_SECTOR_SIZE / 2; i++) {
+            outw(ATA_DATA, *in++);
+        }
+        ata_io_wait();
+    }
+
+    /* Önbelleği diske boşalt — yoksa veri sadece denetleyicide kalabilir */
+    if (ata_wait_not_busy() != 0) return -1;
+    outb(ATA_COMMAND, ATA_CMD_FLUSH);
+    if (ata_wait_not_busy() != 0) return -1;
 
     return 0;
 }

@@ -9,6 +9,7 @@
 
 #define DIR_ENTRY_SIZE   32
 #define ATTR_VOLUME_ID   0x08
+#define ATTR_ARCHIVE     0x20
 #define ATTR_DIRECTORY   0x10
 #define ATTR_LFN         0x0F
 #define FAT_EOC          0x0FFFFFF8
@@ -26,6 +27,9 @@ static struct {
 
 /* Tek sektörlük paylaşılan tampon — kesme bağlamından çağrılmamalı */
 static uint8_t sector_buf[ATA_SECTOR_SIZE];
+
+/* FAT ve dizin güncellemeleri için ayrı tampon: sector_buf okurken bozulmasın */
+static uint8_t work_buf[ATA_SECTOR_SIZE];
 
 int fat32_mounted(void) { return fs.mounted; }
 
@@ -46,6 +50,67 @@ static uint32_t fat_next_cluster(uint32_t cluster)
     uint32_t value;
     memcpy(&value, &sector_buf[entry_off], 4);
     return value & 0x0FFFFFFF;
+}
+
+/* FAT girdisini her iki FAT kopyasında da güncelle */
+static int fat_set_entry(uint32_t cluster, uint32_t value)
+{
+    uint32_t fat_offset = cluster * 4;
+    uint32_t sector_in_fat = fat_offset / fs.bytes_per_sector;
+    uint32_t entry_off = fat_offset % fs.bytes_per_sector;
+
+    for (uint8_t copy = 0; copy < fs.num_fats; copy++) {
+        uint32_t lba = fs.reserved_sectors + copy * fs.fat_size + sector_in_fat;
+
+        if (ata_read_sectors(lba, 1, work_buf) != 0) return -1;
+
+        uint32_t existing;
+        memcpy(&existing, &work_buf[entry_off], 4);
+        /* Üst 4 bit ayrılmıştır, korunur */
+        uint32_t updated = (existing & 0xF0000000) | (value & 0x0FFFFFFF);
+        memcpy(&work_buf[entry_off], &updated, 4);
+
+        if (ata_write_sectors(lba, 1, work_buf) != 0) return -1;
+    }
+
+    return 0;
+}
+
+/* Boş bir küme bul ve zincir sonu olarak işaretle. 0 = yer yok. */
+static uint32_t fat_alloc_cluster(void)
+{
+    uint32_t entries_per_sector = fs.bytes_per_sector / 4;
+    uint32_t total_clusters = fs.fat_size * entries_per_sector;
+
+    for (uint32_t sector = 0; sector < fs.fat_size; sector++) {
+        uint32_t lba = fs.reserved_sectors + sector;
+        if (ata_read_sectors(lba, 1, work_buf) != 0) return 0;
+
+        for (uint32_t i = 0; i < entries_per_sector; i++) {
+            uint32_t cluster = sector * entries_per_sector + i;
+            if (cluster < 2 || cluster >= total_clusters) continue;
+
+            uint32_t value;
+            memcpy(&value, &work_buf[i * 4], 4);
+            if ((value & 0x0FFFFFFF) != 0) continue;
+
+            if (fat_set_entry(cluster, 0x0FFFFFFF) != 0) return 0;
+            return cluster;
+        }
+    }
+
+    return 0;
+}
+
+/* Bir küme zincirini serbest bırak */
+static int fat_free_chain(uint32_t cluster)
+{
+    while (cluster >= 2 && cluster < FAT_EOC) {
+        uint32_t next = fat_next_cluster(cluster);
+        if (fat_set_entry(cluster, 0) != 0) return -1;
+        cluster = next;
+    }
+    return 0;
 }
 
 int fat32_init(void)
@@ -202,6 +267,225 @@ int fat32_list_root(void)
     }
 
     return count;
+}
+
+/* Kök dizinde ada göre girdiyi bul ve DİSKTEKİ yerini döndür */
+static int find_entry_location(const char *name, uint32_t *lba_out, int *off_out)
+{
+    char target[11];
+    to_short_name(name, target);
+
+    uint32_t cluster = fs.root_cluster;
+
+    while (cluster >= 2 && cluster < FAT_EOC) {
+        for (uint32_t s = 0; s < fs.sectors_per_cluster; s++) {
+            uint32_t lba = cluster_to_lba(cluster) + s;
+            if (ata_read_sectors(lba, 1, sector_buf) != 0) return 0;
+
+            for (int off = 0; off < ATA_SECTOR_SIZE; off += DIR_ENTRY_SIZE) {
+                uint8_t *e = &sector_buf[off];
+                if (e[0] == 0x00) return 0;
+                if (e[0] == 0xE5) continue;
+                if (e[11] == ATTR_LFN) continue;
+                if (e[11] & ATTR_VOLUME_ID) continue;
+
+                if (memcmp(e, target, 11) == 0) {
+                    *lba_out = lba;
+                    *off_out = off;
+                    return 1;
+                }
+            }
+        }
+        cluster = fat_next_cluster(cluster);
+    }
+
+    return 0;
+}
+
+/* Kök dizinde boş girdi yeri bul; gerekirse dizini bir küme uzat */
+static int find_free_dir_slot(uint32_t *lba_out, int *off_out)
+{
+    uint32_t cluster = fs.root_cluster;
+    uint32_t last_cluster = cluster;
+
+    while (cluster >= 2 && cluster < FAT_EOC) {
+        last_cluster = cluster;
+
+        for (uint32_t s = 0; s < fs.sectors_per_cluster; s++) {
+            uint32_t lba = cluster_to_lba(cluster) + s;
+            if (ata_read_sectors(lba, 1, sector_buf) != 0) return 0;
+
+            for (int off = 0; off < ATA_SECTOR_SIZE; off += DIR_ENTRY_SIZE) {
+                uint8_t first = sector_buf[off];
+                if (first == 0x00 || first == 0xE5) {
+                    *lba_out = lba;
+                    *off_out = off;
+                    return 1;
+                }
+            }
+        }
+        cluster = fat_next_cluster(cluster);
+    }
+
+    /* Dizin dolu — yeni küme ekle */
+    uint32_t new_cluster = fat_alloc_cluster();
+    if (new_cluster == 0) return 0;
+
+    if (fat_set_entry(last_cluster, new_cluster) != 0) return 0;
+
+    memset(work_buf, 0, ATA_SECTOR_SIZE);
+    for (uint32_t s = 0; s < fs.sectors_per_cluster; s++) {
+        if (ata_write_sectors(cluster_to_lba(new_cluster) + s, 1, work_buf) != 0) return 0;
+    }
+
+    *lba_out = cluster_to_lba(new_cluster);
+    *off_out = 0;
+    return 1;
+}
+
+/* Dizin girdisini yaz */
+static int write_dir_entry(uint32_t lba, int off, const char name11[11],
+                           uint32_t cluster, uint32_t size)
+{
+    if (ata_read_sectors(lba, 1, work_buf) != 0) return -1;
+
+    uint8_t *e = &work_buf[off];
+    memset(e, 0, DIR_ENTRY_SIZE);
+    memcpy(e, name11, 11);
+    e[11] = ATTR_ARCHIVE;
+
+    uint16_t hi = (uint16_t)(cluster >> 16);
+    uint16_t lo = (uint16_t)(cluster & 0xFFFF);
+    memcpy(&e[20], &hi, 2);
+    memcpy(&e[26], &lo, 2);
+    memcpy(&e[28], &size, 4);
+
+    return ata_write_sectors(lba, 1, work_buf);
+}
+
+int fat32_write_file(const char *name, const void *data, uint32_t size)
+{
+    if (!fs.mounted) return -1;
+
+    char name11[11];
+    to_short_name(name, name11);
+
+    uint32_t entry_lba;
+    int entry_off;
+
+    /* Dosya varsa eski zincirini bırak, girdisini yeniden kullan */
+    if (find_entry_location(name, &entry_lba, &entry_off)) {
+        if (ata_read_sectors(entry_lba, 1, sector_buf) != 0) return -1;
+
+        uint16_t hi, lo;
+        memcpy(&hi, &sector_buf[entry_off + 20], 2);
+        memcpy(&lo, &sector_buf[entry_off + 26], 2);
+        uint32_t old_cluster = ((uint32_t)hi << 16) | lo;
+
+        if (old_cluster >= 2) {
+            if (fat_free_chain(old_cluster) != 0) return -2;
+        }
+    } else if (!find_free_dir_slot(&entry_lba, &entry_off)) {
+        kprintf("[FAT32] Root directory is full.\n");
+        return -3;
+    }
+
+    /* Boş dosya: küme ayırmaya gerek yok */
+    if (size == 0) {
+        return write_dir_entry(entry_lba, entry_off, name11, 0, 0) == 0 ? 0 : -4;
+    }
+
+    uint32_t cluster_bytes = fs.sectors_per_cluster * fs.bytes_per_sector;
+    uint32_t needed = (size + cluster_bytes - 1) / cluster_bytes;
+
+    const uint8_t *src = (const uint8_t *)data;
+    uint32_t written = 0;
+    uint32_t first_cluster = 0;
+    uint32_t prev_cluster = 0;
+
+    for (uint32_t c = 0; c < needed; c++) {
+        uint32_t cluster = fat_alloc_cluster();
+        if (cluster == 0) {
+            kprintf("[FAT32] Disk full.\n");
+            if (first_cluster) fat_free_chain(first_cluster);
+            return -5;
+        }
+
+        if (first_cluster == 0) {
+            first_cluster = cluster;
+        } else if (fat_set_entry(prev_cluster, cluster) != 0) {
+            return -6;
+        }
+        prev_cluster = cluster;
+
+        /* Kümeyi sektör sektör yaz; son sektör eksikse sıfırla doldur */
+        for (uint32_t s = 0; s < fs.sectors_per_cluster && written < size; s++) {
+            uint32_t chunk = size - written;
+            if (chunk > ATA_SECTOR_SIZE) chunk = ATA_SECTOR_SIZE;
+
+            memset(work_buf, 0, ATA_SECTOR_SIZE);
+            memcpy(work_buf, src + written, chunk);
+
+            if (ata_write_sectors(cluster_to_lba(cluster) + s, 1, work_buf) != 0) {
+                fat_free_chain(first_cluster);
+                return -7;
+            }
+            written += chunk;
+        }
+    }
+
+    if (write_dir_entry(entry_lba, entry_off, name11, first_cluster, size) != 0) {
+        return -8;
+    }
+
+    return (int)written;
+}
+
+int fat32_delete_file(const char *name)
+{
+    if (!fs.mounted) return -1;
+
+    uint32_t entry_lba;
+    int entry_off;
+    if (!find_entry_location(name, &entry_lba, &entry_off)) return -1;
+
+    if (ata_read_sectors(entry_lba, 1, work_buf) != 0) return -2;
+
+    uint16_t hi, lo;
+    memcpy(&hi, &work_buf[entry_off + 20], 2);
+    memcpy(&lo, &work_buf[entry_off + 26], 2);
+    uint32_t cluster = ((uint32_t)hi << 16) | lo;
+
+    /* Girdiyi silinmiş işaretle */
+    work_buf[entry_off] = 0xE5;
+    if (ata_write_sectors(entry_lba, 1, work_buf) != 0) return -3;
+
+    if (cluster >= 2) fat_free_chain(cluster);
+
+    return 0;
+}
+
+uint64_t fat32_free_space(void)
+{
+    if (!fs.mounted) return 0;
+
+    uint32_t entries_per_sector = fs.bytes_per_sector / 4;
+    uint64_t free_clusters = 0;
+
+    for (uint32_t sector = 0; sector < fs.fat_size; sector++) {
+        if (ata_read_sectors(fs.reserved_sectors + sector, 1, work_buf) != 0) break;
+
+        for (uint32_t i = 0; i < entries_per_sector; i++) {
+            uint32_t cluster = sector * entries_per_sector + i;
+            if (cluster < 2) continue;
+
+            uint32_t value;
+            memcpy(&value, &work_buf[i * 4], 4);
+            if ((value & 0x0FFFFFFF) == 0) free_clusters++;
+        }
+    }
+
+    return free_clusters * fs.sectors_per_cluster * fs.bytes_per_sector;
 }
 
 int fat32_file_size(const char *name)
