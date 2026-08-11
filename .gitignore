@@ -21,3 +21,6 @@ limine/
 .idea/
 
 scripts/diskfiles/*.elf
+
+build/
+*.pcap

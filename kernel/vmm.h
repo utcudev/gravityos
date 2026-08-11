@@ -15,6 +15,8 @@
 #define PAGE_PRESENT  0x01
 #define PAGE_WRITABLE 0x02
 #define PAGE_USER     0x04
+#define PAGE_WRITETHROUGH 0x08
+#define PAGE_NOCACHE      0x10  /* MMIO bölgeleri önbelleğe alınmamalı */
 #define PAGE_HUGE     0x80
 
 typedef uint64_t pt_entry_t;

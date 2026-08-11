@@ -49,6 +49,14 @@ if (Test-Path $diskImg) {
     $qargs += @("-drive", "file=$diskImg,format=raw,if=ide,index=0,media=disk")
 }
 
+# Ağ: QEMU user-mode (slirp). Ağ geçidi 10.0.2.2, misafir 10.0.2.15.
+# Trafiği build\net.pcap dosyasına da yazıyoruz — hata ayıklamada şart.
+$qargs += @(
+    "-netdev", "user,id=n0",
+    "-device", "e1000,netdev=n0",
+    "-object", "filter-dump,id=dump0,netdev=n0,file=$buildDir\net.pcap"
+)
+
 $proc = Start-Process -FilePath $qemu -ArgumentList $qargs -PassThru -NoNewWindow
 Start-Sleep -Seconds $Seconds
 

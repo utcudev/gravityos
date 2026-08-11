@@ -108,6 +108,8 @@ $c_files = @(
     "drivers/fat32.c",
     "drivers/pci.c",
     "drivers/ata.c",
+    "drivers/e1000.c",
+    "net/net.c",
     "gui/window.c",
     "lib/string.c",
     "lib/stdio.c",

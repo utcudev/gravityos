@@ -18,6 +18,8 @@
 #include "../drivers/fat32.h"
 #include "../kernel/heap.h"
 #include "../kernel/elf.h"
+#include "../drivers/e1000.h"
+#include "../net/net.h"
 #include "../drivers/timer.h"
 #include "../cpu/ports.h"
 
@@ -42,6 +44,8 @@ static void cmd_help(void)
     kprintf("  cat <file> - Print a file from disk\n");
     kprintf("  run <file> - Load an ELF from disk and run it in ring 3\n");
     kprintf("  disk       - Show ATA disk info and dump sector 0\n");
+    kprintf("  net        - Show network configuration\n");
+    kprintf("  ping <ip>  - Send ICMP echo requests\n");
     kprintf("  mem        - Show physical memory usage\n");
     kprintf("  uptime     - Show system uptime\n");
     kprintf("  gravity    - Show GravityOS info\n");
@@ -152,6 +156,97 @@ static void cmd_run(const char *filename)
     }
 
     sleep_ms(300); /* programın çıktısını basmasına fırsat ver */
+}
+
+/* "10.0.2.2" -> 0x0A000202. Başarıda 1. */
+static int parse_ipv4(const char *text, uint32_t *out)
+{
+    uint32_t parts[4] = { 0, 0, 0, 0 };
+    int part = 0;
+    int digits = 0;
+
+    for (const char *p = text; ; p++) {
+        if (*p >= '0' && *p <= '9') {
+            parts[part] = parts[part] * 10 + (uint32_t)(*p - '0');
+            if (parts[part] > 255) return 0;
+            digits++;
+        } else if (*p == '.') {
+            if (digits == 0 || part == 3) return 0;
+            part++;
+            digits = 0;
+        } else if (*p == '\0' || *p == ' ') {
+            break;
+        } else {
+            return 0;
+        }
+    }
+
+    if (part != 3 || digits == 0) return 0;
+
+    *out = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+    return 1;
+}
+
+static void print_ip(uint32_t ip)
+{
+    kprintf("%u.%u.%u.%u", (ip >> 24) & 0xFF, (ip >> 16) & 0xFF,
+            (ip >> 8) & 0xFF, ip & 0xFF);
+}
+
+static void cmd_net(void)
+{
+    if (!e1000_present()) {
+        kprintf("net: no network card\n");
+        return;
+    }
+
+    const uint8_t *mac = e1000_mac();
+    kprintf("MAC:      %02x:%02x:%02x:%02x:%02x:%02x\n",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    kprintf("IPv4:     ");
+    print_ip(net_local_ip());
+    kprintf("\nGateway:  ");
+    print_ip(net_gateway_ip());
+    kprintf("\nPackets:  %u received, %u sent\n", net_rx_count(), net_tx_count());
+}
+
+static void cmd_ping(const char *target)
+{
+    if (!target) {
+        kprintf("usage: ping <ip>\n");
+        return;
+    }
+
+    if (!net_ready()) {
+        kprintf("ping: network not ready\n");
+        return;
+    }
+
+    uint32_t ip;
+    if (!parse_ipv4(target, &ip)) {
+        kprintf("ping: invalid address '%s'\n", target);
+        return;
+    }
+
+    kprintf("PING ");
+    print_ip(ip);
+    kprintf("\n");
+
+    int received = 0;
+    for (uint16_t seq = 1; seq <= 4; seq++) {
+        int rtt = net_ping(ip, seq);
+
+        if (rtt < 0) {
+            kprintf("  seq=%u  timeout\n", seq);
+        } else {
+            kprintf("  seq=%u  reply in %d ms\n", seq, rtt * 10);
+            received++;
+        }
+        sleep_ms(200);
+    }
+
+    kprintf("  %d/4 replies\n", received);
 }
 
 static void cmd_ls(void)
@@ -447,6 +542,10 @@ static void process_command(char *cmd_line)
         cmd_clear();
     } else if (strcmp(cmd, "echo") == 0) {
         cmd_echo(args);
+    } else if (strcmp(cmd, "net") == 0) {
+        cmd_net();
+    } else if (strcmp(cmd, "ping") == 0) {
+        cmd_ping(args);
     } else if (strcmp(cmd, "run") == 0) {
         cmd_run(args);
     } else if (strcmp(cmd, "ls") == 0 || strcmp(cmd, "dir") == 0) {

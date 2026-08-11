@@ -16,6 +16,8 @@
 #include "../drivers/pci.h"
 #include "../drivers/ata.h"
 #include "../drivers/fat32.h"
+#include "../drivers/e1000.h"
+#include "../net/net.h"
 #include "../gui/window.h"
 #include "../cpu/idt.h"
 #include "../cpu/gdt.h"
@@ -174,6 +176,8 @@ void kmain(void)
     pci_init();
     ata_init();
     fat32_init();
+    e1000_init();
+    net_init();
 
     /* Saat sürecini başlat: scheduler gerçekten iki süreç arasında geçiş
        yaptığını görev çubuğundaki sayaç ile kanıtlar */
