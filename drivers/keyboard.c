@@ -7,6 +7,7 @@
  * ============================================================================= */
 
 #include "keyboard.h"
+#include "mouse.h"
 #include "../cpu/idt.h"
 #include "../cpu/ports.h"
 
@@ -60,20 +61,14 @@ static void buffer_put(char c)
 }
 
 /* ==========================================================================
- * keyboard_irq_handler — IRQ 1 handler (klavye kesmesi)
+ * keyboard_handle_byte — Tek bir scancode'u işle
+ * =========================================================================
+ * PS/2 denetleyicisinde klavye ve fare TEK bir çıkış tamponunu paylaşır.
+ * Baytı hangi kesmenin okuduğu değil, kime ait olduğu önemlidir; bu yüzden
+ * çözümleme buraya ayrıldı. Hem IRQ 1 hem IRQ 12 buraya yönlendirebiliyor.
  * ========================================================================== */
-static void keyboard_irq_handler(cpu_state_t *regs)
+void keyboard_handle_byte(uint8_t scancode)
 {
-    (void)regs; /* Kullanılmıyor */
-
-    /* Bekleyen bayt fareye aitse (status bit 5) elleme — IRQ 12 onu alacak.
-       Aksi halde iki sürücü aynı tampondan okuyup birbirinin verisini yutar. */
-    uint8_t status = inb(0x64);
-    if ((status & 0x01) == 0) return;
-    if (status & 0x20) return;
-
-    uint8_t scancode = inb(KEYBOARD_DATA_PORT);
-
     /* Key release (bit 7 set) */
     if (scancode & 0x80) {
         uint8_t released = scancode & 0x7F;
@@ -140,8 +135,39 @@ static void keyboard_irq_handler(cpu_state_t *regs)
 /* ==========================================================================
  * keyboard_init — Klavye sürücüsünü başlat
  * ========================================================================== */
+/* ==========================================================================
+ * keyboard_irq_handler — IRQ 1 (klavye kesmesi)
+ * =========================================================================
+ * Tamponu tamamen boşaltır. Fareye ait baytları da okuyup fare sürücüsüne
+ * verir: bir bayt okunmadan tamponun başında beklerse arkasındaki klavye
+ * baytları asla gelmez ve klavye kalıcı olarak ölür.
+ * ========================================================================== */
+static void keyboard_irq_handler(cpu_state_t *regs)
+{
+    (void)regs;
+
+    for (int guard = 0; guard < 32; guard++) {
+        uint8_t status = inb(KEYBOARD_STATUS_PORT);
+        if ((status & 0x01) == 0) return;   /* tampon boş */
+
+        uint8_t data = inb(KEYBOARD_DATA_PORT);
+
+        if (status & 0x20) {
+            mouse_handle_byte(data);        /* fareye ait */
+        } else {
+            keyboard_handle_byte(data);
+        }
+    }
+}
+
 void keyboard_init(void)
 {
+    /* Açılışta tamponda bekleyen artık baytları temizle */
+    for (int i = 0; i < 32; i++) {
+        if (!(inb(KEYBOARD_STATUS_PORT) & 0x01)) break;
+        inb(KEYBOARD_DATA_PORT);
+    }
+
     /* IRQ 1 handler'ını kaydet */
     irq_install_handler(1, keyboard_irq_handler);
 }

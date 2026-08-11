@@ -6,6 +6,7 @@
  * ============================================================================= */
 
 #include "mouse.h"
+#include "keyboard.h"
 #include "../cpu/ports.h"
 #include "../cpu/idt.h"
 #include "../drivers/fb.h"
@@ -84,19 +85,14 @@ static void draw_mouse_cursor(int32_t x, int32_t y)
     old_mouse_y = y;
 }
 
-static void mouse_irq_handler(cpu_state_t *regs)
+/* ==========================================================================
+ * mouse_handle_byte — Fareden gelen tek baytı işle
+ * =========================================================================
+ * Üç baytlık paketler halinde gelir. Baytı hangi kesmenin okuduğu önemli
+ * değil; klavye handler'ı da fare baytı görürse buraya yönlendirir.
+ * ========================================================================== */
+void mouse_handle_byte(uint8_t data)
 {
-    (void)regs;
-
-    uint8_t status = inb(0x64);
-
-    /* Bit 0: okunacak veri var mı, Bit 5: veri FARE'den mi geliyor.
-       Klavye baytı ise DOKUNMA — okursak scancode kaybolur ve tuşlar yutulur.
-       O baytı IRQ 1 handler'ı alacak. */
-    if ((status & 0x21) != 0x21) return;
-
-    uint8_t data = inb(0x60);
-
     switch (mouse_cycle) {
     case 0:
         /* İlk bayt daima 0x08 bitini taşır; taşımıyorsa senkron bozulmuştur */
@@ -145,6 +141,30 @@ static void mouse_irq_handler(cpu_state_t *regs)
     if (mouse_y > max_y) mouse_y = max_y;
 
     draw_mouse_cursor(mouse_x, mouse_y);
+}
+
+/* ==========================================================================
+ * mouse_irq_handler — IRQ 12 (fare kesmesi)
+ * =========================================================================
+ * Klavye handler'ı gibi tamponu tamamen boşaltır; klavyeye ait baytları
+ * klavye sürücüsüne verir. Böylece hiçbir bayt tamponu tıkayamaz.
+ * ========================================================================== */
+static void mouse_irq_handler(cpu_state_t *regs)
+{
+    (void)regs;
+
+    for (int guard = 0; guard < 32; guard++) {
+        uint8_t status = inb(0x64);
+        if ((status & 0x01) == 0) return;
+
+        uint8_t data = inb(0x60);
+
+        if (status & 0x20) {
+            mouse_handle_byte(data);
+        } else {
+            keyboard_handle_byte(data);
+        }
+    }
 }
 
 void mouse_init(void)
