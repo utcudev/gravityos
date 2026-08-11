@@ -62,9 +62,18 @@ static void clock_process(void)
 {
     char buf[32];
     uint64_t last_shown = (uint64_t)-1;
+    uint64_t last_blink = 0;
 
     for (;;) {
-        uint64_t seconds = timer_get_ticks() / 100;
+        uint64_t ticks = timer_get_ticks();
+
+        /* Yarım saniyede bir imleci yak/söndür */
+        if (ticks - last_blink >= 50) {
+            last_blink = ticks;
+            fbcon_cursor_blink();
+        }
+
+        uint64_t seconds = ticks / 100;
 
         if (seconds != last_shown) {
             last_shown = seconds;

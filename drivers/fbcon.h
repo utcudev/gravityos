@@ -28,6 +28,9 @@
 void fbcon_init(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t bg_color);
 
 void fbcon_putchar(char c);
+
+/* Yanıp sönen imleç: periyodik olarak (örn. yarım saniyede bir) çağrılır */
+void fbcon_cursor_blink(void);
 void fbcon_clear(void);
 void fbcon_set_color(uint32_t fg_color);
 int  fbcon_ready(void);

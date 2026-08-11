@@ -18,6 +18,10 @@ static uint32_t con_fg = FBC_GREY;
 static uint32_t cur_col = 0, cur_row = 0;
 static int con_ready = 0;
 
+/* İmlecin şu an ekranda çizili olup olmadığı ve çizildiği yer */
+static int      cursor_shown = 0;
+static uint32_t cursor_col = 0, cursor_row = 0;
+
 /* Ekran içeriği — kaydırma sırasında yeniden çizmek için tutulur */
 static char     cell_ch[FBCON_MAX_ROWS][FBCON_MAX_COLS];
 static uint32_t cell_fg[FBCON_MAX_ROWS][FBCON_MAX_COLS];
@@ -79,6 +83,7 @@ void fbcon_clear(void)
     }
     cur_col = 0;
     cur_row = 0;
+    cursor_shown = 0;
 
     fb_draw_rect(con_x, con_y, con_cols * FBCON_CELL_W, con_rows * FBCON_CELL_H, con_bg);
 }
@@ -98,6 +103,7 @@ static void scroll_up(void)
     }
 
     cur_row = con_rows - 1;
+    cursor_shown = 0; /* redraw_all imleci de siler */
     redraw_all();
 }
 
@@ -111,9 +117,42 @@ static void newline(void)
     }
 }
 
+/* İmleci gizle: altındaki hücreyi olduğu gibi yeniden çiz */
+static void cursor_hide(void)
+{
+    if (!cursor_shown) return;
+    cursor_shown = 0;
+    if (cursor_row < con_rows && cursor_col < con_cols) {
+        draw_cell(cursor_row, cursor_col);
+    }
+}
+
+void fbcon_cursor_blink(void)
+{
+    if (!con_ready) return;
+
+    if (cursor_shown) {
+        cursor_hide();
+        return;
+    }
+
+    /* İmleci geçerli yazma konumuna dolu blok olarak çiz */
+    cursor_row = cur_row;
+    cursor_col = cur_col;
+    if (cursor_row >= con_rows || cursor_col >= con_cols) return;
+
+    fb_draw_rect(con_x + cursor_col * FBCON_CELL_W,
+                 con_y + cursor_row * FBCON_CELL_H,
+                 FBCON_CELL_W, FBCON_CELL_H - 1, FBC_GREY);
+    cursor_shown = 1;
+}
+
 void fbcon_putchar(char c)
 {
     if (!con_ready) return;
+
+    /* Yazmadan önce imleci kaldır, yoksa blok ekranda takılı kalır */
+    cursor_hide();
 
     if (c == '\n') {
         newline();
