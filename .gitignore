@@ -1,0 +1,21 @@
+# Build çıktıları
+build/
+iso_root/
+*.o
+*.elf
+*.bin
+
+# İmajlar
+*.iso
+*.img
+
+# İndirilen araçlar (build.ps1 bunları kendisi indirir)
+tools/
+cdrtfe/
+cdrtools/
+limine/
+*.zip
+
+# Editör
+.vscode/
+.idea/
