@@ -53,7 +53,7 @@ static void cmd_help(void)
     kprintf("  uptime     - Show system uptime\n");
     kprintf("  gravity    - Show GravityOS info\n");
     kprintf("  reboot     - Reboot the system\n");
-    kprintf("  halt       - Halt the CPU\n");
+    kprintf("  dumb       - Halt the CPU\n");
     kprintf("\n");
 }
 
@@ -642,7 +642,7 @@ static void process_command(char *cmd_line)
         cmd_gravity();
     } else if (strcmp(cmd, "reboot") == 0) {
         cmd_reboot();
-    } else if (strcmp(cmd, "halt") == 0) {
+    } else if (strcmp(cmd, "dumb") == 0 || strcmp(cmd, "halt") == 0) {
         cmd_halt();
     } else {
         fbcon_set_color(FBC_RED);
