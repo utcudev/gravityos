@@ -35,6 +35,7 @@ $port = Get-Random -Minimum 45000 -Maximum 49000
 
 $qargs = @(
     "-cdrom", $isoPath,
+    "-boot", "d",          # disk imajı da boot imzası taşıdığı için CD'yi zorla
     "-m", "512M",
     "-no-reboot",
     "-display", "none",

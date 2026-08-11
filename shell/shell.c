@@ -15,6 +15,8 @@
 #include "../kernel/usermode.h"
 #include "../drivers/fb.h"
 #include "../drivers/ata.h"
+#include "../drivers/fat32.h"
+#include "../kernel/heap.h"
 #include "../drivers/timer.h"
 #include "../cpu/ports.h"
 
@@ -35,6 +37,8 @@ static void cmd_help(void)
     kprintf("  echo <msg> - Print a message\n");
     kprintf("  fetch      - System summary with logo\n");
     kprintf("  usermode   - Run a test program in ring 3\n");
+    kprintf("  ls         - List files on disk\n");
+    kprintf("  cat <file> - Print a file from disk\n");
     kprintf("  disk       - Show ATA disk info and dump sector 0\n");
     kprintf("  mem        - Show physical memory usage\n");
     kprintf("  uptime     - Show system uptime\n");
@@ -77,6 +81,59 @@ static void cmd_uptime(void)
 
     kprintf("Uptime: %lu hours, %lu minutes, %lu seconds\n",
             hours, minutes % 60, seconds % 60);
+}
+
+static void cmd_ls(void)
+{
+    if (!fat32_mounted()) {
+        kprintf("gsh: no filesystem mounted\n");
+        return;
+    }
+
+    int count = fat32_list_root();
+    if (count >= 0) kprintf("  (%d entries)\n", count);
+}
+
+static void cmd_cat(const char *filename)
+{
+    if (!filename) {
+        kprintf("usage: cat <file>\n");
+        return;
+    }
+
+    if (!fat32_mounted()) {
+        kprintf("gsh: no filesystem mounted\n");
+        return;
+    }
+
+    int size = fat32_file_size(filename);
+    if (size < 0) {
+        kprintf("cat: %s: no such file\n", filename);
+        return;
+    }
+    if (size == 0) {
+        kprintf("cat: %s is empty\n", filename);
+        return;
+    }
+
+    char *buf = (char *)kmalloc((size_t)size + 1);
+    if (!buf) {
+        kprintf("cat: out of memory\n");
+        return;
+    }
+
+    int read = fat32_read_file(filename, buf, (uint32_t)size);
+    if (read < 0) {
+        kprintf("cat: read error (%d)\n", read);
+        kfree(buf);
+        return;
+    }
+
+    buf[read] = '\0';
+    for (int i = 0; i < read; i++) kputchar(buf[i]);
+    if (read > 0 && buf[read - 1] != '\n') kputchar('\n');
+
+    kfree(buf);
 }
 
 static void cmd_disk(void)
@@ -319,6 +376,10 @@ static void process_command(char *cmd_line)
         cmd_clear();
     } else if (strcmp(cmd, "echo") == 0) {
         cmd_echo(args);
+    } else if (strcmp(cmd, "ls") == 0 || strcmp(cmd, "dir") == 0) {
+        cmd_ls();
+    } else if (strcmp(cmd, "cat") == 0) {
+        cmd_cat(args);
     } else if (strcmp(cmd, "disk") == 0) {
         cmd_disk();
     } else if (strcmp(cmd, "usermode") == 0 || strcmp(cmd, "ring3") == 0) {

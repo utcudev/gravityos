@@ -1,0 +1,9 @@
+GravityOS notlari
+=================
+
+- ls    : diskteki dosyalari listeler
+- cat   : dosya icerigini gosterir
+- disk  : disk bilgisi ve sektor dokumu
+- usermode : ring 3 test programi
+
+Siradaki hedef: diskten ELF okuyup ring 3'te calistirmak.

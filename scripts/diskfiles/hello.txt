@@ -1,0 +1,7 @@
+Merhaba GravityOS!
+
+Bu dosya diskte duruyor. Kernel onu ATA PIO ile sektor sektor okudu,
+FAT32 tablosundan yerini buldu ve ekrana bastin.
+
+Buraya istedigini yazabilirsin; scripts/make_disk.py calistirilinca
+yeni disk imajina girer.

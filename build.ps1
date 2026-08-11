@@ -208,7 +208,9 @@ if ($Run) {
     if (-not $qemu) { $qemu = "C:\Program Files\qemu\qemu-system-x86_64.exe" }
     if (!(Test-Path $qemu)) { Fail "QEMU bulunamadı. Kurulum: winget install SoftwareFreedomConservancy.QEMU" }
 
-    $qargs = @("-cdrom", "$cwd\gravityos.iso", "-m", "512M", "-no-reboot", "-no-shutdown")
+    # -boot d: veri diski de boot imzası taşıdığından CD'den açılmayı zorla
+    $qargs = @("-cdrom", "$cwd\gravityos.iso", "-boot", "d",
+               "-m", "512M", "-no-reboot", "-no-shutdown")
 
     # Sabit disk imajı varsa bağla
     if (Test-Path "$cwd\disk.img") {
