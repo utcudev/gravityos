@@ -83,6 +83,27 @@ void vmm_map_page(uint64_t phys_addr, uint64_t virt_addr, uint64_t flags)
     __asm__ volatile("invlpg (%0)" : : "r"(virt_addr) : "memory");
 }
 
+int vmm_is_mapped(uint64_t virt_addr)
+{
+    uint64_t pml4_idx = (virt_addr >> 39) & 0x1FF;
+    uint64_t pdpt_idx = (virt_addr >> 30) & 0x1FF;
+    uint64_t pd_idx   = (virt_addr >> 21) & 0x1FF;
+    uint64_t pt_idx   = (virt_addr >> 12) & 0x1FF;
+
+    if (!(current_pml4[pml4_idx] & PAGE_PRESENT)) return 0;
+    pt_entry_t* pdpt = (pt_entry_t*)((current_pml4[pml4_idx] & ~0xFFF) + hhdm_offset);
+
+    if (!(pdpt[pdpt_idx] & PAGE_PRESENT)) return 0;
+    pt_entry_t* pd = (pt_entry_t*)((pdpt[pdpt_idx] & ~0xFFF) + hhdm_offset);
+
+    if (!(pd[pd_idx] & PAGE_PRESENT)) return 0;
+    /* 2 MB büyük sayfa ise zaten haritalı sayılır */
+    if (pd[pd_idx] & PAGE_HUGE) return 1;
+
+    pt_entry_t* pt = (pt_entry_t*)((pd[pd_idx] & ~0xFFF) + hhdm_offset);
+    return (pt[pt_idx] & PAGE_PRESENT) ? 1 : 0;
+}
+
 void vmm_unmap_page(uint64_t virt_addr)
 {
     /* Basit unmap */

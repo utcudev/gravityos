@@ -68,7 +68,8 @@ gravityos/
 ├── gui/            # masaüstü ve pencere çizimi
 ├── lib/            # string, stdio (kprintf)
 ├── shell/          # gsh — komut satırı
-├── scripts/        # qemu_test.ps1
+├── userland/       # ring 3'te çalışan kullanıcı programları (ayrı derlenir)
+├── scripts/        # qemu_test.ps1, make_disk.py, diskfiles/
 ├── attic/          # kullanım dışı eski kod ve arşiv (build'e dahil değil)
 ├── build.ps1       # build sistemi
 ├── limine.conf     # bootloader yapılandırması
@@ -82,6 +83,10 @@ gravityos/
 | `help` | Komut listesi |
 | `clear` | Ekranı temizle |
 | `echo <msg>` | Mesaj yazdır |
+| `ls` | Diskteki dosyaları listele |
+| `cat <dosya>` | Dosya içeriğini yazdır |
+| `run <dosya.elf>` | Diskten ELF yükleyip ring 3'te çalıştır |
+| `disk` | Disk bilgisi ve sektör dökümü |
 | `fetch` | Logolu sistem özeti (fastfetch tarzı) |
 | `usermode` | Ring 3'te test programı çalıştır |
 | `mem` | Fiziksel bellek kullanımı |
@@ -114,17 +119,29 @@ gravityos/
 - [x] `syscall`/`sysret` girişi — `write` ve `exit` çalışıyor
       (`cpu/syscall_entry.asm`, `kernel/syscall.c`)
 
-Henüz yok:
+- [x] ATA PIO disk sürücüsü (`drivers/ata.c`)
+- [x] FAT32 salt okunur — `ls`, `cat` çalışıyor (`drivers/fat32.c`)
+- [x] Diskten ELF64 yükleyip ring 3'te çalıştırma (`run hello.elf`)
+- [x] `userland/` — kernel'den bağımsız derlenen kullanıcı programları
 
-- [ ] Disk sürücüsü (ATA PIO / AHCI) — bu olmadan dosya okunamıyor
-- [ ] FAT32 — `drivers/fat32.c` iskelet, `fat32_init` hiçbir yerden çağrılmıyor
-- [ ] ELF çalıştırma — `kernel/elf_loader.c` segmentleri haritalıyor ama
-      ring 3'e geçmiyor; artık `usermode.c`'deki yolu kullanabilir
+Henüz yok:
 - [ ] Süreç başına ayrı adres alanı (şu an tüm süreçler aynı PML4'ü paylaşıyor)
 - [ ] Pencere yöneticisi: taşıma, odak, çoklu pencere, fare tıklaması
 
-Sıradaki adım: ATA PIO sürücüsü + FAT32 okuma. Disk okunabilir olunca ELF
-yükleyici gerçek bir programı diskten alıp ring 3'te çalıştırabilir.
+Sıradaki adım: FAT32'ye yazma desteği, süreç başına ayrı adres alanı ve
+gerçek bir pencere yöneticisi.
+
+### Kendi programını yazmak
+
+`userland/` altına bir `.asm` dosyası koy; `build.ps1` onu ELF olarak derleyip
+disk imajına atar. Sonra GravityOS içinde:
+
+```
+run senin_program.elf
+```
+
+Kullanılabilir syscall'lar: `write` (rax=1), `exit` (rax=60), `brk` (rax=12).
+Çağrı düzeni Linux x86_64 ile aynı: numara `rax`, argümanlar `rdi, rsi, rdx`.
 
 ### Bilinen sınırlar
 

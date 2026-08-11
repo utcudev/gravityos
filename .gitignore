@@ -19,3 +19,5 @@ limine/
 # Editör
 .vscode/
 .idea/
+
+scripts/diskfiles/*.elf

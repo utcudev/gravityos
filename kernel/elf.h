@@ -44,7 +44,11 @@ typedef struct {
 
 #define PT_LOAD 1
 
-/* Basit ELF yükleyici fonksiyonu */
+/* ELF'i kullanıcı alanına yükler, giriş noktasını entry_out'a yazar.
+   Başarıda 0, hatada -1. Programı başlatmaz. */
+int elf_load(uint8_t *file_buffer, uint64_t *entry_out);
+
+/* Yükler ve doğrudan ring 3'te başlatır (geri dönmez) */
 void elf_load_and_run(uint8_t *file_buffer);
 
 #endif /* KERNEL_ELF_H */

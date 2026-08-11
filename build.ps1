@@ -155,6 +155,39 @@ Write-Host "      LD kernel.elf" -ForegroundColor DarkGray
     "-o" "$buildDir\kernel.elf" "-target" "x86_64-freestanding"
 if ($LASTEXITCODE -ne 0) { Fail "Kernel linklenemedi." }
 
+# ------------------------------------------- 4b. Kullanıcı programları + disk
+$userlandDir = Join-Path $cwd "userland"
+if (Test-Path $userlandDir) {
+    Write-Host "      Kullanıcı programları derleniyor..." -ForegroundColor DarkGray
+    $diskFiles = Join-Path $cwd "scripts\diskfiles"
+    New-Item -ItemType Directory -Force -Path $diskFiles | Out-Null
+
+    foreach ($src in Get-ChildItem $userlandDir -Filter *.asm) {
+        $name = [System.IO.Path]::GetFileNameWithoutExtension($src.Name)
+        $obj  = Join-Path $buildDir "$name.user.o"
+        $elf  = Join-Path $diskFiles "$name.elf"
+
+        & nasm -f elf64 $src.FullName -o $obj
+        if ($LASTEXITCODE -ne 0) { Fail "nasm $($src.Name) derlenemedi." }
+
+        # Kullanıcı programı 0x400000'e bağlanır; kernel alanına girmez
+        & zig cc "-nostdlib" "-T" "$userlandDir\user.ld" `
+            $obj "-o" $elf "-target" "x86_64-freestanding"
+        if ($LASTEXITCODE -ne 0) { Fail "$($src.Name) linklenemedi." }
+
+        Write-Host "      USER $name.elf" -ForegroundColor DarkGray
+    }
+
+    # FAT32 disk imajını yeniden üret
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        & python "$cwd\scripts\make_disk.py" "$cwd\disk.img" | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail "disk.img üretilemedi." }
+        Write-Host "      DISK disk.img güncellendi" -ForegroundColor DarkGray
+    } else {
+        Write-Host "      UYARI: python yok, disk.img güncellenmedi." -ForegroundColor Yellow
+    }
+}
+
 # ------------------------------------------------------------------ 5. ISO
 Write-Host "[5/5] ISO üretiliyor..." -ForegroundColor Yellow
 

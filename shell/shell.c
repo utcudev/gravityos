@@ -17,6 +17,7 @@
 #include "../drivers/ata.h"
 #include "../drivers/fat32.h"
 #include "../kernel/heap.h"
+#include "../kernel/elf.h"
 #include "../drivers/timer.h"
 #include "../cpu/ports.h"
 
@@ -39,6 +40,7 @@ static void cmd_help(void)
     kprintf("  usermode   - Run a test program in ring 3\n");
     kprintf("  ls         - List files on disk\n");
     kprintf("  cat <file> - Print a file from disk\n");
+    kprintf("  run <file> - Load an ELF from disk and run it in ring 3\n");
     kprintf("  disk       - Show ATA disk info and dump sector 0\n");
     kprintf("  mem        - Show physical memory usage\n");
     kprintf("  uptime     - Show system uptime\n");
@@ -81,6 +83,75 @@ static void cmd_uptime(void)
 
     kprintf("Uptime: %lu hours, %lu minutes, %lu seconds\n",
             hours, minutes % 60, seconds % 60);
+}
+
+/* `run` komutu için bekleyen dosya adı — süreç girişi argüman almadığından
+   isim buradan aktarılır. Tek anda tek program başlatılıyor. */
+static char pending_run_file[32];
+
+static void run_elf_process(void)
+{
+    int size = fat32_file_size(pending_run_file);
+    if (size <= 0) {
+        kprintf("run: %s: no such file\n", pending_run_file);
+        process_exit(process_get_current_pid());
+        return;
+    }
+
+    uint8_t *buf = (uint8_t *)kmalloc((size_t)size);
+    if (!buf) {
+        kprintf("run: out of memory\n");
+        process_exit(process_get_current_pid());
+        return;
+    }
+
+    if (fat32_read_file(pending_run_file, buf, (uint32_t)size) < 0) {
+        kprintf("run: read error\n");
+        kfree(buf);
+        process_exit(process_get_current_pid());
+        return;
+    }
+
+    uint64_t entry;
+    int rc = elf_load(buf, &entry);
+
+    /* Segmentler kullanıcı sayfalarına kopyalandı; dosya tamponu artık gereksiz.
+       Ring 3'e atladıktan sonra buraya dönemeyeceğimiz için şimdi bırakıyoruz. */
+    kfree(buf);
+
+    if (rc != 0) {
+        process_exit(process_get_current_pid());
+        return;
+    }
+
+    usermode_enter(entry, USER_STACK_VIRT + USER_STACK_SIZE - 16);
+}
+
+static void cmd_run(const char *filename)
+{
+    if (!filename) {
+        kprintf("usage: run <file.elf>\n");
+        return;
+    }
+
+    if (!fat32_mounted()) {
+        kprintf("run: no filesystem mounted\n");
+        return;
+    }
+
+    int i = 0;
+    while (filename[i] && i < (int)sizeof(pending_run_file) - 1) {
+        pending_run_file[i] = filename[i];
+        i++;
+    }
+    pending_run_file[i] = '\0';
+
+    if (process_create(run_elf_process) == 0) {
+        kprintf("run: could not create process\n");
+        return;
+    }
+
+    sleep_ms(300); /* programın çıktısını basmasına fırsat ver */
 }
 
 static void cmd_ls(void)
@@ -376,6 +447,8 @@ static void process_command(char *cmd_line)
         cmd_clear();
     } else if (strcmp(cmd, "echo") == 0) {
         cmd_echo(args);
+    } else if (strcmp(cmd, "run") == 0) {
+        cmd_run(args);
     } else if (strcmp(cmd, "ls") == 0 || strcmp(cmd, "dir") == 0) {
         cmd_ls();
     } else if (strcmp(cmd, "cat") == 0) {

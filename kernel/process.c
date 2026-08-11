@@ -42,12 +42,19 @@ uint32_t process_create(void (*entry_point)(void))
     for (int i = 1; i < MAX_PROCESSES; i++) {
         if (processes[i].state == PROC_STATE_DEAD) {
             processes[i].pid = next_pid++;
-            processes[i].state = PROC_STATE_READY;
+            /* Slotu SLEEPING olarak ayır: zamanlayıcı yalnızca READY süreçleri
+               seçer, böylece kayıtlar doldurulmadan bu sürece geçilemez.
+               Aksi halde timer tam bu arada tetiklenirse iretq sıfırlanmış
+               bir bağlamla çalışır ve #GP ile sistem çöker. */
+            processes[i].state = PROC_STATE_SLEEPING;
             processes[i].alloc_count = 0;
             
             /* Her süreç için 16KB'lık özel bir Kernel Stack tahsis ediyoruz */
             void* new_stack = kmalloc(PROC_STACK_SIZE);
-            if (!new_stack) return 0;
+            if (!new_stack) {
+                processes[i].state = PROC_STATE_DEAD; /* ayırmayı geri al */
+                return 0;
+            }
 
             processes[i].stack_base = (uint64_t)new_stack;
             /* Stack yukarıdan aşağı büyür; tepesi 16 bayt hizalı olmalı */
@@ -60,6 +67,9 @@ uint32_t process_create(void (*entry_point)(void))
             processes[i].context.cs = kernel_cs;
             processes[i].context.ss = kernel_ss;
             processes[i].context.rflags = 0x202; /* Interrupts Enabled */
+
+            /* Her şey hazır — ancak şimdi çalıştırılabilir yap */
+            processes[i].state = PROC_STATE_READY;
 
             kprintf("[SCHEDULER] Created Process PID: %d\n", processes[i].pid);
             return processes[i].pid;
