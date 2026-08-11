@@ -642,7 +642,7 @@ static void process_command(char *cmd_line)
         cmd_gravity();
     } else if (strcmp(cmd, "reboot") == 0) {
         cmd_reboot();
-    } else if (strcmp(cmd, "dumb") == 0 || strcmp(cmd, "halt") == 0) {
+    } else if (strcmp(cmd, "dumb") == 0) {
         cmd_halt();
     } else {
         fbcon_set_color(FBC_RED);
